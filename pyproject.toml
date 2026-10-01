@@ -22,6 +22,10 @@ dev = [
     "respx>=0.21",
     "anyio>=4.4",
 ]
+ingest = [
+    "pypdf>=4.0",
+    "azure-storage-blob>=12.19",
+]
 
 [project.scripts]
 coach = "coach.app:run"

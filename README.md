@@ -131,8 +131,40 @@ uv run coach
 
 Open <http://127.0.0.1:8000>, click **Start**, and grant microphone access.
 
-> Live use requires the `gpt-realtime-2.1` deployment (present) and — for
-> grounded suggestions — a populated Azure AI Search index (not yet created).
+> Live use requires the `gpt-realtime-2.1` deployment and a transcription
+> deployment, plus a populated Azure AI Search index for grounded answers.
+
+---
+
+## Adding grounding documents
+
+Grounded answers come from an Azure AI Search index. Use the ingestion script to
+load PDF/TXT/MD documents (from a blob container or a local folder) into it.
+
+```bash
+# 1. Install ingestion extras
+uv pip install -e ".[ingest]"     # or: pip install -e ".[ingest]"
+
+# 2. Provide a Search admin key (writes the index)
+export SEARCH_ADMIN_KEY=$(az search admin-key show \
+  --service-name secondchat -g MC-abhi --query primaryKey -o tsv)
+
+# 3a. Ingest from a blob container (az login required for blob access)
+python scripts/ingest.py --account secondchat --container ai-container
+
+# 3b. …or from a local folder
+python scripts/ingest.py --local ./my-docs
+```
+
+The script creates the index if needed (fields match `AZURE_SEARCH_*_FIELD`),
+chunks each document, and uploads passages. It is **idempotent** — add more
+documents and rerun it. Use `--recreate` to rebuild the index from scratch.
+
+Verify retrieval with no audio:
+
+```bash
+uv run python -m coach.retrieval "a question your docs should answer"
+```
 
 ---
 
