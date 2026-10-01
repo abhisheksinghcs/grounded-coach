@@ -1,10 +1,10 @@
-# Conversation Coach
+# Grounded Coach
 
-A runnable, local conversation-coaching app. Your browser streams microphone
-(and optionally tab/system) audio **directly to Azure OpenAI Realtime** over
-WebRTC. A FastAPI backend negotiates the session and runs a **sideband control
-channel** that grounds the model's suggestions in **Azure AI Search** — without
-ever touching your audio.
+Real-time conversation coaching, grounded in your own knowledge base. Your
+browser streams microphone (and optionally tab/system) audio **directly to
+Azure OpenAI Realtime** over WebRTC. A FastAPI backend negotiates the session
+and runs a **sideband control channel** that grounds the model's suggestions in
+**Azure AI Search** — without ever touching your audio.
 
 By default the coach is **silent** (text suggestions only) and **grounded**
 (the backend requires retrieval before the model answers).

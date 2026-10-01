@@ -47,7 +47,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         yield
         await app.state.http.aclose()
 
-    app = FastAPI(title="Conversation Coach", lifespan=lifespan)
+    app = FastAPI(title="Grounded Coach", lifespan=lifespan)
     app.state.settings = settings
 
     @app.get("/api/config")

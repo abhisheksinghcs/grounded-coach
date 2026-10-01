@@ -1,7 +1,7 @@
 [project]
-name = "voice-assistant"
+name = "grounded-coach"
 version = "0.1.0"
-description = "Local conversation-coaching app: browser WebRTC audio to Azure OpenAI Realtime (GA), FastAPI sideband controller, grounded suggestions from Azure AI Search."
+description = "Grounded Coach: real-time conversation coaching. Browser WebRTC audio to Azure OpenAI Realtime (GA), FastAPI sideband controller, grounded suggestions from Azure AI Search."
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
