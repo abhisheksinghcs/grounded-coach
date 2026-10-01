@@ -177,7 +177,7 @@ function renderSources(sources) {
   const card = document.createElement("div");
   card.className = "suggestion";
   if (!sources.length) {
-    card.innerHTML = "<b>No grounded sources found</b> — the coach will say it lacks grounded information.";
+    card.innerHTML = "<b>No grounding found for this turn</b> — the agent will respond conversationally without inventing Caldova specifics.";
   } else {
     const items = sources
       .map((s) => {

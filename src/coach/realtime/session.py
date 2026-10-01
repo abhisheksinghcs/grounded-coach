@@ -82,7 +82,9 @@ def build_session_config(settings: Settings) -> dict[str, Any]:
     completed turn, so the backend can require retrieval before any answer.
     Output modality defaults to text-only (silent coaching).
     """
-    output_modalities = ["audio", "text"] if settings.coach_spoken_mode else ["text"]
+    # Azure accepts ["text"] OR ["audio"] (not both). Audio-only still streams a
+    # text transcript (response.output_audio_transcript.delta) for the UI.
+    output_modalities = ["audio"] if settings.coach_spoken_mode else ["text"]
     session: dict[str, Any] = {
         "type": "realtime",
         "model": settings.azure_openai_realtime_deployment,

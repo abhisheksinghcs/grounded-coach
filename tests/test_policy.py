@@ -34,14 +34,27 @@ def test_grounded_response_with_hits_injects_grounding(settings):
     assert cmd["response"]["output_modalities"] == ["text"]
 
 
-def test_grounded_response_empty_avoids_ungrounded_answer(settings):
+def test_grounded_response_empty_avoids_fabrication(settings):
     cmd = ResponsePolicy(settings).build_grounded_response("anything", [])
     instr = cmd["response"]["instructions"]
     assert "NO_RESULTS" in instr
-    assert "do not guess" in instr.lower()
+    # Conversational, but must not invent specifics that aren't grounded.
+    assert "not grounded" in instr.lower()
+    assert "do not state" in instr.lower()
+
+
+def test_spoken_mode_answers_naturally_without_reading_ids():
+    s = Settings(_env_file=None, coach_spoken_mode=True, azure_openai_api_key="k")
+    from coach.retrieval.search_adapter import RetrievedDoc
+
+    docs = [RetrievedDoc("doc-1", "T", "a fact", "u", 1.0)]
+    cmd = ResponsePolicy(s).build_grounded_response("tell me", docs)
+    assert cmd["response"]["output_modalities"] == ["audio"]
+    # In spoken mode the grounding rule tells the model NOT to read ids aloud.
+    assert "do not read the bracketed ids" in cmd["response"]["instructions"].lower()
 
 
 def test_spoken_mode_sets_audio_modalities():
     s = Settings(_env_file=None, coach_spoken_mode=True, azure_openai_api_key="k")
     cmd = ResponsePolicy(s).build_grounded_response("q", [])
-    assert cmd["response"]["output_modalities"] == ["audio", "text"]
+    assert cmd["response"]["output_modalities"] == ["audio"]

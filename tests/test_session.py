@@ -116,7 +116,7 @@ def test_session_config_registers_transcription(settings):
 def test_session_config_spoken_mode_enables_audio():
     s = Settings(_env_file=None, coach_spoken_mode=True, azure_openai_api_key="k")
     cfg = build_session_config(s)
-    assert cfg["output_modalities"] == ["audio", "text"]
+    assert cfg["output_modalities"] == ["audio"]
 
 
 def test_session_config_auto_response_flag_respected():
