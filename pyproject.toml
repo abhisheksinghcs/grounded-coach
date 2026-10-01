@@ -1,0 +1,46 @@
+[project]
+name = "voice-assistant"
+version = "0.1.0"
+description = "Local conversation-coaching app: browser WebRTC audio to Azure OpenAI Realtime (GA), FastAPI sideband controller, grounded suggestions from Azure AI Search."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "httpx>=0.27",
+    "pydantic>=2.7",
+    "pydantic-settings>=2.3",
+    "azure-identity>=1.17",
+    "azure-search-documents>=11.5",
+    "python-dotenv>=1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.2",
+    "pytest-asyncio>=0.23",
+    "respx>=0.21",
+    "anyio>=4.4",
+]
+
+[project.scripts]
+coach = "coach.app:run"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/coach"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+markers = [
+    "live: tests that require real Azure resources and network access (deselected by default)",
+]
+addopts = "-m 'not live'"
+
+[tool.uv]
+package = true

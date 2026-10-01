@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Conversation Coach</title>
+    <style>
+      :root { font-family: system-ui, sans-serif; }
+      body { margin: 0; background: #0f1220; color: #e6e8ef; }
+      header { padding: 16px 24px; border-bottom: 1px solid #262a40; }
+      h1 { font-size: 18px; margin: 0; }
+      .sub { color: #8b90a7; font-size: 13px; margin-top: 4px; }
+      main { display: grid; grid-template-columns: 320px 1fr; gap: 0; height: calc(100vh - 66px); }
+      .panel { padding: 20px 24px; overflow: auto; }
+      .controls { border-right: 1px solid #262a40; }
+      button { font-size: 14px; padding: 8px 16px; border-radius: 8px; border: 0; cursor: pointer; margin-right: 8px; }
+      #start { background: #4f7cff; color: white; }
+      #stop { background: #2a2f4a; color: #e6e8ef; }
+      button:disabled { opacity: 0.5; cursor: not-allowed; }
+      label { display: block; margin: 10px 0; font-size: 14px; }
+      .status { margin-top: 16px; font-size: 13px; color: #8b90a7; }
+      .status b { color: #e6e8ef; }
+      #suggestions { display: flex; flex-direction: column; gap: 10px; }
+      .suggestion { background: #1a1e33; border: 1px solid #2c3150; border-radius: 10px; padding: 12px 14px; line-height: 1.5; }
+      pre#log { background: #0a0c16; color: #8b90a7; font-size: 12px; padding: 12px; border-radius: 8px; height: 180px; overflow: auto; margin-top: 16px; }
+      .note { font-size: 12px; color: #6f748e; margin-top: 8px; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>Conversation Coach</h1>
+      <div class="sub">Silent, grounded suggestions from your live conversation. Audio stays between your browser and Azure; transcripts are not stored.</div>
+    </header>
+    <main>
+      <section class="panel controls">
+        <button id="start">Start</button>
+        <button id="stop" disabled>Stop</button>
+
+        <label><input type="checkbox" id="use-mic" checked /> Microphone</label>
+        <label><input type="checkbox" id="use-system" /> Computer / tab audio (optional)</label>
+        <div class="note">
+          Tab/system audio requires you to pick a source and enable “share
+          audio” in the browser dialog. Screen video is never uploaded. System
+          audio support varies by OS/browser.
+        </div>
+
+        <div class="status">Status: <b id="status">idle</b></div>
+        <pre id="log"></pre>
+      </section>
+      <section class="panel">
+        <div id="suggestions"></div>
+      </section>
+    </main>
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>
