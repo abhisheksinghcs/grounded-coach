@@ -95,6 +95,11 @@ def build_session_config(settings: Settings) -> dict[str, Any]:
                     # Backend drives responses unless auto-response is enabled.
                     "create_response": settings.coach_auto_response,
                 },
+                # Transcribe the user's audio so the backend can read the words
+                # and run retrieval itself (backend-driven grounding).
+                "transcription": {
+                    "model": settings.azure_openai_transcribe_deployment,
+                },
             },
             "output": {"voice": settings.coach_voice},
         },

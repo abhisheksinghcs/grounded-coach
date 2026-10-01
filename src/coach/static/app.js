@@ -29,6 +29,7 @@ const state = {
   currentSuggestion: null,
   lastSources: [],
   stopping: false,
+  pendingCommands: [],
 };
 
 function log(msg) {
@@ -100,11 +101,31 @@ function openSideband() {
       renderSources(msg.sources || []);
       return; // UI only; never forwarded to the model
     }
-    if (state.dc && state.dc.readyState === "open") {
-      state.dc.send(JSON.stringify(msg));
-    }
+    sendToDataChannel(msg);
   };
   return ws;
+}
+
+// Forward a command onto the WebRTC data channel. If the channel isn't open
+// yet, queue it and flush when it opens — so early commands (e.g. tool setup)
+// are never silently dropped.
+function sendToDataChannel(msg) {
+  if (state.dc && state.dc.readyState === "open") {
+    state.dc.send(JSON.stringify(msg));
+  } else {
+    state.pendingCommands.push(msg);
+    log("Queued command (data channel not open yet): " + (msg.type || "?"));
+  }
+}
+
+function flushPendingCommands() {
+  if (!state.dc || state.dc.readyState !== "open") return;
+  const pending = state.pendingCommands;
+  state.pendingCommands = [];
+  for (const msg of pending) {
+    state.dc.send(JSON.stringify(msg));
+  }
+  if (pending.length) log(`Flushed ${pending.length} queued command(s)`);
 }
 
 function relayToSideband(event) {
@@ -220,7 +241,10 @@ async function connect() {
   // Data channel carries realtime JSON events (GA name: "realtime-channel").
   const dc = pc.createDataChannel("realtime-channel");
   state.dc = dc;
-  dc.onopen = () => log("Data channel open");
+  dc.onopen = () => {
+    log("Data channel open");
+    flushPendingCommands();
+  };
   dc.onmessage = (e) => {
     try {
       handleRealtimeEvent(JSON.parse(e.data));
@@ -278,6 +302,7 @@ function disconnect() {
     state.ws = null;
   }
   state.currentSuggestion = null;
+  state.pendingCommands = [];
   setStatus("idle");
   els.start.disabled = false;
   els.stop.disabled = true;

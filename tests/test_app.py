@@ -52,18 +52,20 @@ def test_session_endpoint_propagates_auth_failure(settings):
         assert "error" in resp.json()
 
 
-def test_sideband_ws_registers_tool_on_connect(settings):
+def test_sideband_ws_connects_without_initial_command(settings):
+    # Grounding is backend-driven; nothing is pushed on connect. A relayed
+    # transcript with no index configured must not crash the socket.
     with TestClient(create_app(settings)) as client:
         with client.websocket_connect("/ws/sideband") as ws:
-            first = ws.receive_json()
-            assert first["type"] == events.SESSION_UPDATE
-            assert any(t["name"] == "search" for t in first["session"]["tools"])
+            ws.send_json(
+                {"type": events.INPUT_AUDIO_BUFFER_SPEECH_STARTED, "event_id": "x1"}
+            )
+            ws.send_json({"type": "unknown.event", "event_id": "x2"})
 
 
 def test_sideband_ws_handles_relayed_event(settings):
     with TestClient(create_app(settings)) as client:
         with client.websocket_connect("/ws/sideband") as ws:
-            ws.receive_json()  # drain initial session.update
             # Relaying an event must not crash the socket.
             ws.send_json(
                 {"type": events.INPUT_AUDIO_BUFFER_SPEECH_STARTED, "event_id": "x1"}

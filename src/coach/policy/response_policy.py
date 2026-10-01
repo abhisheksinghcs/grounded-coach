@@ -42,50 +42,33 @@ class ResponsePolicy:
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
 
-    # -- step 1: after a user turn, force the search tool -------------------
-    def on_turn_complete(self) -> dict[str, Any]:
-        """Explicitly kick the grounded workflow after a completed turn."""
+    def build_grounded_response(
+        self, transcript: str, docs: list[RetrievedDoc]
+    ) -> dict[str, Any]:
+        """Build the single ``response.create`` for a completed user turn.
+
+        The backend has already run retrieval, so the grounding is injected via
+        per-response ``instructions`` (overriding the session instructions for
+        this response). No tools / function-calling are involved.
+
+        For empty retrieval, the instructions tell the model to admit it lacks
+        grounded information and not to guess.
+        """
+        base = self._settings.coach_instructions
+        if docs:
+            body = self.format_grounding(docs)
+        else:
+            body = _NO_RESULTS + "\n" + _EMPTY_INSTRUCTIONS
+        instructions = f"{base}\n\n{body}"
+        if transcript:
+            instructions += f'\n\nThe user just said: "{transcript}"'
         return {
             "type": events.RESPONSE_CREATE,
             "response": {
                 "output_modalities": self._modalities(),
-                "instructions": (
-                    "Call the `search` tool with a concise query derived from "
-                    "the user's latest statement before offering any advice."
-                ),
-                "tool_choice": {"type": "function", "name": "search"},
+                "instructions": instructions,
             },
         }
-
-    # -- step 2: after retrieval, return tool output + final response ------
-    def on_results(
-        self, call_id: str, docs: list[RetrievedDoc]
-    ) -> list[dict[str, Any]]:
-        """Return the commands to send once retrieval for ``call_id`` is done.
-
-        For hits: a ``function_call_output`` (same call_id) followed by a
-        grounded ``response.create``. For empty retrieval: a NO_RESULTS tool
-        output followed by a response that states the lack of grounding.
-        """
-        if docs:
-            output = self.format_grounding(docs)
-            final_instructions = None
-        else:
-            output = _NO_RESULTS
-            final_instructions = _EMPTY_INSTRUCTIONS
-
-        tool_output = events.build_function_call_output(call_id, output)
-        response = {
-            "type": events.RESPONSE_CREATE,
-            "response": {
-                "output_modalities": self._modalities(),
-                # Don't let the model loop back into another search.
-                "tool_choice": "none",
-            },
-        }
-        if final_instructions:
-            response["response"]["instructions"] = final_instructions
-        return [tool_output, response]
 
     # -- grounding formatting (untrusted content) -------------------------
     def format_grounding(self, docs: list[RetrievedDoc]) -> str:

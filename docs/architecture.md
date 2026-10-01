@@ -105,18 +105,30 @@ respond, it just listens forever — a **deadlock**. So the backend takes explic
 responsibility for timing:
 
 ```
-user stops talking ──► transcription.completed ──► backend sends response.create
-   (asking for the `search` tool)  ──► model calls search  ──► backend retrieves
-   ──► backend returns tool output + a second response.create (now it may answer)
+user stops talking ──► input audio transcribed (transcription.completed)
+   ──► backend reads the transcript ──► backend runs Azure AI Search itself
+   ──► backend injects grounding into a single response.create ──► model answers
 ```
 
 This is the single most important control-flow decision in the app, and it is
-implemented in `ResponsePolicy.on_turn_complete()` +
-`SidebandController._on_user_turn_complete()`.
+implemented in `SidebandController._on_user_turn_complete()` +
+`ResponsePolicy.build_grounded_response()`.
 
-**Trade-off:** more round-trips per turn (kick → tool call → retrieve → answer)
-in exchange for a guarantee that answers are grounded. For a *coaching* tool
-(where correctness beats raw latency), that is the right trade.
+**Trade-off:** we require a deployed transcription model and add a transcription
+step, in exchange for a guarantee that answers are grounded and a fully
+deterministic flow. For a *coaching* tool (correctness over raw latency), that
+is the right trade.
+
+### Why backend-driven, not model function-calling
+
+An earlier design asked the model to call a `search` *function tool* and the
+backend answered the tool call. In practice `gpt-realtime-2.1` was unreliable at
+this over the data channel: with a forced tool choice it emitted a "commentary"
+message and then a function-call stub whose arguments never finished streaming,
+hanging the turn. Letting the **backend** read the transcript and drive
+retrieval removes the model's function-calling from the critical path entirely —
+it is deterministic and cannot stall. The model is only ever asked to do what it
+does reliably: produce one grounded text (or audio) answer.
 
 ---
 

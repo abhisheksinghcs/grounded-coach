@@ -15,7 +15,6 @@ Responsibilities grow by milestone:
 
 from __future__ import annotations
 
-import json
 import logging
 from collections import OrderedDict
 from collections.abc import Awaitable, Callable
@@ -55,12 +54,18 @@ class SidebandController:
         # The turn a currently in-flight response/search belongs to. Results
         # that arrive for a superseded turn are discarded (M5).
         self._active_turn: int | None = None
-        # The last turn for which we already kicked the response workflow, so a
-        # turn is kicked at most once even if several "turn complete" signals
-        # arrive (e.g. buffer committed AND transcription completed).
+        # The last turn for which we already started the workflow, so a turn is
+        # handled at most once even if several "turn complete" signals arrive.
         self._kicked_turn: int | None = None
         # Whether a model response is currently in progress (for barge-in).
         self._response_active = False
+        # A grounded workflow (search -> response) is in progress. Prevents
+        # overlapping workflows from a rapid second utterance.
+        self._workflow_busy = False
+        # A newer completed turn arrived while a workflow was busy; serve it
+        # once the current workflow finishes.
+        self._pending_turn: int | None = None
+        self._pending_transcript: str = ""
         self._closed = False
 
     # -- lifecycle ---------------------------------------------------------
@@ -69,12 +74,13 @@ class SidebandController:
         return self._turn_id
 
     async def start(self) -> None:
-        """Register the coaching tool on the live session after connect."""
-        await self._send(
-            events.build_session_tools_update(
-                auto_response=self._settings.coach_auto_response
-            )
-        )
+        """No session setup needed: grounding is backend-driven (no tools)."""
+        return None
+
+    async def _emit(self, command: dict[str, Any]) -> None:
+        """Send a command to the browser/model."""
+        logger.debug("outbound command: %s", command.get("type"))
+        await self._send(command)
 
     async def close(self) -> None:
         self._closed = True
@@ -94,27 +100,22 @@ class SidebandController:
             return
 
         etype = event.get("type")
+        logger.debug("inbound event: %s", etype)
         if etype == events.ERROR:
             await self._on_error(event)
         elif etype == events.INPUT_AUDIO_BUFFER_SPEECH_STARTED:
             await self._on_speech_started(event)
-        elif etype in (
-            events.INPUT_AUDIO_BUFFER_COMMITTED,
-            events.INPUT_TRANSCRIPTION_COMPLETED,
-        ):
-            # Either signal means the user's turn is complete. The buffer-
-            # committed event fires with server VAD regardless of whether
-            # transcription is enabled, so it is the primary trigger.
+        elif etype == events.INPUT_TRANSCRIPTION_COMPLETED:
+            # The user's audio has been transcribed. This gives the backend the
+            # user's words so it can run retrieval and drive a grounded answer.
             await self._on_user_turn_complete(event)
-        elif etype == events.RESPONSE_FUNCTION_CALL_ARGUMENTS_DONE:
-            await self._on_function_call(event)
         elif etype == events.RESPONSE_CREATED:
-            # A model response actually started; track it for barge-in.
             self._response_active = True
         elif etype == events.RESPONSE_DONE:
             self._response_active = False
-        # Other events (deltas, session.created, etc.) need no server action;
-        # the browser renders them directly.
+            await self._maybe_finish_workflow()
+        # Other events (deltas, item.added, session.created, etc.) need no
+        # server action; the browser renders them directly.
 
     # -- de-duplication ----------------------------------------------------
     def _is_duplicate(self, event: dict[str, Any]) -> bool:
@@ -131,7 +132,7 @@ class SidebandController:
     # -- handlers (M1 scope; extended in M4/M5) ---------------------------
     async def _on_error(self, event: dict[str, Any]) -> None:
         err = event.get("error", {})
-        logger.warning("Realtime error: %s", err.get("message", err))
+        logger.warning("Realtime error event: %s", err)
 
     async def _on_speech_started(self, event: dict[str, Any]) -> None:
         # User (re)started talking. Bump the turn so any in-flight results for
@@ -140,50 +141,52 @@ class SidebandController:
         self._turn_id += 1
         logger.debug("Speech started; turn -> %d", self._turn_id)
         if self._response_active:
-            await self._send(events.build_response_cancel())
+            await self._emit(events.build_response_cancel())
             self._response_active = False
 
     async def _on_user_turn_complete(self, event: dict[str, Any]) -> None:
-        # Explicitly start the grounded workflow after a completed turn so we
-        # never deadlock waiting for an auto-response that won't come.
-        if self._policy is None:
-            logger.debug("User turn complete (turn %d); no policy wired", self._turn_id)
+        # The user's turn has been transcribed. Run retrieval on the transcript
+        # and drive a single grounded response. Backend-driven: no tools, no
+        # model function-calling, no listening deadlock.
+        if self._policy is None or self._retriever is None:
+            logger.debug("Turn complete but retriever/policy not wired")
             return
-        # Kick each turn at most once, even if several completion signals fire.
+        # Handle each turn at most once.
         if self._kicked_turn == self._turn_id:
             return
+        transcript = str(event.get("transcript", "") or "").strip()
+        # Never start a competing workflow while one is in progress; remember the
+        # latest turn and serve it once the current workflow finishes.
+        if self._workflow_busy:
+            self._pending_turn = self._turn_id
+            self._pending_transcript = transcript
+            logger.info("workflow busy; deferring turn %d", self._turn_id)
+            return
+        await self._start_workflow(transcript)
+
+    async def _start_workflow(self, transcript: str) -> None:
         self._kicked_turn = self._turn_id
         self._active_turn = self._turn_id
-        await self._send(self._policy.on_turn_complete())
-
-    async def _on_function_call(self, event: dict[str, Any]) -> None:
-        # The model asked to run the `search` tool. Execute retrieval, then
-        # return the tool output (same call_id) and request a grounded response.
-        if self._retriever is None or self._policy is None:
-            logger.debug("Function call but retriever/policy not wired")
-            return
-        call_id = event.get("call_id")
-        if not call_id:
-            logger.warning("function_call event missing call_id; ignoring")
-            return
-
-        query = self._extract_query(event)
-        turn_at_call = self._turn_id
+        self._workflow_busy = True
+        turn_at_start = self._turn_id
+        logger.info("turn %d complete -> transcript=%r", turn_at_start, transcript)
 
         docs = []
         try:
-            docs = await self._retriever.search(query)
+            docs = await self._retriever.search(transcript)
+            logger.info("search returned %d doc(s)", len(docs))
         except Exception as exc:  # retrieval failure -> treat as empty grounding
             logger.warning("Retrieval failed: %s", exc)
 
         # Discard stale results: if the user started a new turn while we were
-        # searching, this result is obsolete — drop it (M5).
-        if turn_at_call != self._turn_id:
+        # searching, this result is obsolete — drop it and finish the workflow.
+        if turn_at_start != self._turn_id:
             logger.debug(
                 "Discarding stale search result (turn %d != %d)",
-                turn_at_call,
+                turn_at_start,
                 self._turn_id,
             )
+            await self._finish_workflow()
             return
 
         # Tell the browser which source ids back the upcoming suggestion so it
@@ -191,28 +194,31 @@ class SidebandController:
         await self._send(
             {
                 "_coach": "sources",
-                "turn": turn_at_call,
-                "call_id": call_id,
+                "turn": turn_at_start,
                 "sources": [
                     {"source_id": d.source_id, "title": d.title, "url": d.url}
                     for d in docs
                 ],
             }
         )
+        await self._emit(self._policy.build_grounded_response(transcript, docs))
 
-        for command in self._policy.on_results(call_id, docs):
-            await self._send(command)
+    async def _maybe_finish_workflow(self) -> None:
+        # The workflow ends when its response is done and nothing is streaming.
+        if self._response_active:
+            return
+        await self._finish_workflow()
 
-    @staticmethod
-    def _extract_query(event: dict[str, Any]) -> str:
-        """Pull the search query out of the function-call arguments JSON."""
-        raw = event.get("arguments")
-        if isinstance(raw, dict):
-            return str(raw.get("query", "")).strip()
-        if isinstance(raw, str) and raw.strip():
-            try:
-                parsed = json.loads(raw)
-                return str(parsed.get("query", "")).strip()
-            except (ValueError, AttributeError):
-                return raw.strip()
-        return ""
+    async def _finish_workflow(self) -> None:
+        if not self._workflow_busy:
+            return
+        self._workflow_busy = False
+        # If a newer turn arrived while we were busy, serve the latest one now.
+        if self._pending_turn is not None and self._kicked_turn != self._turn_id:
+            transcript = self._pending_transcript
+            self._pending_turn = None
+            self._pending_transcript = ""
+            await self._start_workflow(transcript)
+        else:
+            self._pending_turn = None
+            self._pending_transcript = ""

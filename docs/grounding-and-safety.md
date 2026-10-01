@@ -14,13 +14,14 @@ suggestion must be backed by retrieved documents.
 * Auto-response is disabled at the session level
   (`turn_detection.create_response = false` in `session.py`), so the model never
   answers on its own.
-* After a completed user turn, `ResponsePolicy.on_turn_complete()` sends a
-  `response.create` that **forces** the `search` tool
-  (`tool_choice: {type: function, name: search}`).
-* Only after the tool result comes back does `on_results()` send a second
-  `response.create` that lets the model actually answer.
+* The user's audio is transcribed (input transcription is enabled in the session
+  config). On the transcript, the **backend** runs Azure AI Search itself.
+* Only then does `ResponsePolicy.build_grounded_response()` send a single
+  `response.create` with the retrieved grounding injected into its instructions.
 
-So the ordering is structurally enforced: **search → results → answer.**
+So the ordering is structurally enforced: **transcript → search → grounded
+answer.** The backend, not the model, drives retrieval — there is no function
+tool for the model to call (see architecture.md §4 for why).
 
 ---
 
@@ -29,21 +30,23 @@ So the ordering is structurally enforced: **search → results → answer.**
 **Rule:** disabling auto-response must not leave the model waiting forever.
 
 **How:** `SidebandController._on_user_turn_complete()` fires on
-`conversation.item.input_audio_transcription.completed` and *explicitly* kicks
-the workflow. The backend, not the model, owns "it's time to respond."
+`conversation.item.input_audio_transcription.completed` and *explicitly* starts
+the search + response workflow. The backend, not the model, owns "it's time to
+respond."
 
 ---
 
-## 3. Tool-call correlation (`call_id`)
+## 3. One workflow per turn (no overlap)
 
-**Rule:** a tool result must be tied to the exact request that asked for it.
+**Rule:** a rapid second utterance must not start a competing, overlapping
+response.
 
-**How:** the model's `function_call` event carries a `call_id`.
-`controller._on_function_call()` reads it and passes it straight to
-`policy.on_results(call_id, docs)`, which puts it on the
-`function_call_output` item via `events.build_function_call_output(call_id, …)`.
-If a `function_call` event arrives **without** a `call_id`, it is ignored (a test
-covers this) — we never guess a correlation id.
+**How:** `_start_workflow()` sets `_workflow_busy`. A turn that completes while
+busy is remembered in `_pending_turn` (with its transcript) and served once the
+current response finishes (`_maybe_finish_workflow()` on `response.done`). Each
+turn is also handled at most once via `_kicked_turn`. A test drives two
+overlapping turns and asserts only one response is emitted until the first
+completes.
 
 ---
 
@@ -51,10 +54,9 @@ covers this) — we never guess a correlation id.
 
 **Rule:** if Search returns nothing, the coach must say so, not invent advice.
 
-**How:** `on_results(call_id, [])` returns:
-1. a `function_call_output` whose output is the `NO_RESULTS` marker, and
-2. a `response.create` whose instructions say *"tell the user you don't have
-   grounded information and do not guess."*
+**How:** `build_grounded_response(transcript, [])` returns a `response.create`
+whose instructions contain the `NO_RESULTS` marker and tell the model to *"say
+you don't have grounded information and do not guess."*
 
 The browser also renders a "No grounded sources found" card. A test asserts the
 response carries the "do not guess" instruction.
@@ -100,7 +102,7 @@ clearly separating data from instructions and telling the model which is which.
 **Rule:** if the user moves on while a search is running, the now-irrelevant
 result must not be shown.
 
-**How:** `_on_function_call()` snapshots `turn_at_call` before searching and
+**How:** `_start_workflow()` snapshots `turn_at_start` before searching and
 compares it to `self._turn_id` afterward. A barge-in (`_on_speech_started`)
 bumps `_turn_id`, so the snapshot no longer matches and the result is dropped
 before any command is sent.
@@ -113,7 +115,8 @@ before any command is sent.
 response.
 
 **How:** `_is_duplicate()` tracks `event_id`s in a bounded `OrderedDict`. A test
-sends the same `function_call` twice and asserts the retriever ran once.
+sends the same transcription-completed event twice and asserts the retriever ran
+once.
 
 ---
 

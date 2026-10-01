@@ -24,6 +24,10 @@ INPUT_AUDIO_BUFFER_SPEECH_STOPPED = "input_audio_buffer.speech_stopped"
 # item. This is the reliable "user turn complete" signal and does NOT depend on
 # input-audio transcription being enabled.
 INPUT_AUDIO_BUFFER_COMMITTED = "input_audio_buffer.committed"
+# A conversation item was added. For a committed USER audio turn this is the
+# event that actually fires (server VAD), so we use it (filtered to role=user)
+# as the primary turn-complete trigger.
+CONVERSATION_ITEM_ADDED = "conversation.item.added"
 INPUT_TRANSCRIPTION_COMPLETED = (
     "conversation.item.input_audio_transcription.completed"
 )

@@ -33,6 +33,9 @@ class Settings(BaseSettings):
     )
     # The realtime *deployment* name. NOT assumed equal to the resource name.
     azure_openai_realtime_deployment: str = Field(default="gpt-realtime-2.1")
+    # Deployment used to transcribe the user's input audio (server-side VAD).
+    # Enables the backend to read the user's words and drive retrieval itself.
+    azure_openai_transcribe_deployment: str = Field(default="gpt-4o-mini-transcribe")
     # Optional API key. If empty, DefaultAzureCredential (Entra ID) is used.
     azure_openai_api_key: str = Field(default="")
     # Entra scope used to mint a bearer token when no api-key is provided.

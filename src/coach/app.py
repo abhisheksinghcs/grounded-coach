@@ -39,6 +39,16 @@ STATIC_DIR = Path(__file__).parent / "static"
 def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or get_settings()
 
+    # Ensure the `coach` loggers surface at INFO even under uvicorn, which does
+    # not configure third-party loggers by default.
+    coach_logger = logging.getLogger("coach")
+    if coach_logger.level == logging.NOTSET:
+        coach_logger.setLevel(logging.INFO)
+    if not coach_logger.handlers and not logging.getLogger().handlers:
+        _h = logging.StreamHandler()
+        _h.setFormatter(logging.Formatter("%(levelname)s:%(name)s:%(message)s"))
+        coach_logger.addHandler(_h)
+
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         # One shared async HTTP client for minting tokens.

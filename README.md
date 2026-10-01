@@ -92,7 +92,8 @@ tests/                   # pytest (mocked) + tests/js (Node capture logic)
 * Node.js 18+ (only to run the small frontend-logic tests)
 * A modern Chromium-based browser for WebRTC + optional tab-audio capture
 * Azure resources (already provisioned):
-  * Azure OpenAI `shhchat` (eastus2) with a `gpt-realtime-2.1` deployment
+  * Azure OpenAI `shhchat` (eastus2) with a `gpt-realtime-2.1` deployment and a
+    transcription deployment (`gpt-4o-mini-transcribe`) for backend-driven grounding
   * Azure AI Search `secondchat` (an index must be created before grounding)
 
 ---

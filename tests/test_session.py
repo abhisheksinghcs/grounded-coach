@@ -108,6 +108,11 @@ def test_session_config_defaults_to_silent_text(settings):
     assert cfg["audio"]["input"]["turn_detection"]["create_response"] is False
 
 
+def test_session_config_registers_transcription(settings):
+    cfg = build_session_config(settings)
+    assert cfg["audio"]["input"]["transcription"]["model"] == "gpt-4o-mini-transcribe"
+
+
 def test_session_config_spoken_mode_enables_audio():
     s = Settings(_env_file=None, coach_spoken_mode=True, azure_openai_api_key="k")
     cfg = build_session_config(s)

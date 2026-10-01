@@ -23,21 +23,22 @@ each module in detail.
  1. User clicks Start, grants mic       static/app.js  connect()
  2. Browser asks backend for a session  POST /api/session        (app.py)
  3. Backend mints ephemeral ek_...       session.py  mint_ephemeral_session()
+    (session enables input transcription + server VAD; NO tools)
  4. Browser opens WebRTC + data channel static/app.js  connect()
  5. Browser opens sideband WebSocket     static/app.js  openSideband()
- 6. Backend registers the search tool    controller.py  start()
- 7. User speaks; VAD detects stop        (Azure)  -> event relayed up
- 8. Turn complete -> force a search       controller._on_user_turn_complete()
-                                          policy.on_turn_complete()
- 9. Model emits function_call(search)     (Azure)  -> event relayed up
-10. Backend runs Azure AI Search         controller._on_function_call()
-                                          search_adapter.search()
-11. Backend returns tool output+response policy.on_results(call_id, docs)
-12. Browser renders grounded suggestion  static/app.js  handleRealtimeEvent()
+ 6. User speaks; VAD detects stop        (Azure)  -> events relayed up
+ 7. Azure transcribes the user's audio   (gpt-4o-mini-transcribe)
+    -> conversation.item.input_audio_transcription.completed (has transcript)
+ 8. Backend reads transcript, searches   controller._on_user_turn_complete()
+                                          -> _start_workflow() -> search_adapter.search()
+ 9. Backend sends sources + one grounded controller._start_workflow()
+    response.create (grounding injected)  policy.build_grounded_response()
+10. Browser renders grounded suggestion  static/app.js  handleRealtimeEvent()
     + citation sources                    static/app.js  renderSources()
 ```
 
-Steps 8 and 11 are the heart of the app. Keep them in mind as you read.
+Steps 8–9 are the heart of the app: the **backend** reads the transcript, runs
+retrieval itself, and injects grounding — the model never calls a tool.
 
 ---
 
@@ -126,8 +127,8 @@ That's the seam that lets tests drive the controller with a list-collecting fake
 
 This is the busiest file. Walk its handlers in the order a turn hits them.
 
-**`start()`** (step 6) sends a `session.update` registering the `search`
-function tool so the model knows it can call it.
+**`start()`** is a no-op: grounding is backend-driven, so no tools are
+registered on the session.
 
 **`handle_event()`** is the single entry point. It first drops the event if the
 controller is closed or the event is a duplicate (`_is_duplicate()` using the
@@ -138,43 +139,39 @@ safely — the browser renders deltas itself.
 becomes stale) and, if a response is currently active, sends `response.cancel`.
 This is how the coach stops talking the instant the user resumes.
 
-**`_on_user_turn_complete()`** (step 8, the anti-deadlock kick): records the
-active turn, marks a response active, and sends `policy.on_turn_complete()` —
-which asks the model to call the `search` tool. Without this, the model (with
-auto-response off) would listen forever.
+**`_on_user_turn_complete()`** (step 8) fires on
+`conversation.item.input_audio_transcription.completed`, which carries the
+user's transcript. It handles each turn once, defers the turn if a workflow is
+already busy (`_pending_turn`), else calls `_start_workflow(transcript)`.
 
-**`_on_function_call()`** (steps 10–11, the grounding loop):
-1. Guards: needs a retriever+policy and a `call_id` (missing `call_id` → ignore).
-2. Extracts the query via `_extract_query()` (arguments can be a dict or a JSON
-   string — both handled).
-3. Snapshots `turn_at_call = self._turn_id`, runs `retriever.search()`. Any
-   exception is swallowed into "empty docs" so a Search outage degrades to a
-   graceful no-grounding path rather than crashing the turn.
-4. **Stale check:** if `turn_at_call != self._turn_id`, the user barged in
-   mid-search → return without sending anything.
-5. Sends the `_coach: "sources"` UI envelope (so citations map to real ids).
-6. Sends whatever `policy.on_results(call_id, docs)` returns (tool output +
-   grounded response).
+**`_start_workflow(transcript)`** (steps 8–9, the grounding core):
+1. Marks the workflow busy and snapshots `turn_at_start = self._turn_id`.
+2. Runs `retriever.search(transcript)`. Any exception is swallowed into "empty
+   docs" so a Search outage degrades to a graceful no-grounding path rather than
+   crashing the turn.
+3. **Stale check:** if `turn_at_start != self._turn_id`, the user barged in
+   mid-search → finish the workflow without sending anything.
+4. Sends the `_coach: "sources"` UI envelope (so citations map to real ids).
+5. Sends `policy.build_grounded_response(transcript, docs)` — one grounded
+   `response.create`.
 
-**`_response_active`** is cleared on `response.done` so a later speech-start
-doesn't cancel a response that already finished.
+**`_response_active`** is tracked via `response.created`/`response.done`.
+`_maybe_finish_workflow()` frees the workflow when the response ends and serves
+any deferred turn (`_pending_turn`). This prevents a rapid second utterance from
+starting a competing, overlapping response.
 
 ---
 
 ### `policy/response_policy.py` — the decisions (pure)
 
-No I/O, no state — just situation → commands. Three methods:
+No I/O, no state — just situation → commands:
 
-* **`on_turn_complete()`** returns a `response.create` whose `tool_choice`
-  **forces** the `search` function. This is the "retrieve before you answer"
-  rule made concrete.
-* **`on_results(call_id, docs)`** returns a two-command list:
-  1. a `function_call_output` carrying the **same `call_id`** and either the
-     formatted grounding or the `NO_RESULTS` marker;
-  2. a `response.create` to generate the final answer, with `tool_choice:
-     "none"` so the model can't loop into another search.
-  For **empty retrieval** it attaches instructions telling the model to admit it
-  lacks grounding and **not guess**.
+* **`build_grounded_response(transcript, docs)`** returns the single
+  `response.create` for a completed turn. It injects the grounding (or the
+  `NO_RESULTS` marker) via per-response `instructions`, includes the transcript
+  for focus, and sets `output_modalities`. For **empty retrieval** the
+  instructions tell the model to admit it lacks grounding and **not guess**.
+  No tools or function-calling are involved.
 * **`format_grounding(docs)`** builds the grounding block: a header labeling the
   text as **untrusted reference data** (prompt-injection defense), one
   `[source_id] title: content` line per doc, and a citation rule telling the

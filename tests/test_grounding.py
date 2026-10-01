@@ -1,8 +1,8 @@
-"""Milestone 4/5: controller grounding loop.
+"""Milestone 4/5: controller grounded workflow (backend-driven via transcript).
 
-Covers: turn-complete kicks the workflow, tool-call correlation (call_id),
-empty retrieval, duplicate function-call events, and stale-result discard after
-interruption.
+Covers: transcription-complete triggers search+response, citations tied to
+source ids, empty retrieval, duplicate transcription events, overlapping turns,
+and stale-result discard after interruption.
 """
 
 from __future__ import annotations
@@ -34,15 +34,6 @@ class FakeRetriever:
         return self._docs
 
 
-def _call_event(call_id="call_1", query="negotiation tactics"):
-    return {
-        "type": events.RESPONSE_FUNCTION_CALL_ARGUMENTS_DONE,
-        "event_id": "ev-" + call_id,
-        "call_id": call_id,
-        "arguments": '{"query": "%s"}' % query,
-    }
-
-
 def _controller(settings, docs, out, *, on_search=None):
     return SidebandController(
         settings,
@@ -52,112 +43,109 @@ def _controller(settings, docs, out, *, on_search=None):
     )
 
 
-async def test_turn_complete_starts_search_workflow(settings):
-    out = Collector()
-    ctrl = _controller(settings, [], out)
-    await ctrl.handle_event(
-        {"type": events.INPUT_TRANSCRIPTION_COMPLETED, "event_id": "t1"}
-    )
-    kick = out.sent[-1]
-    assert kick["type"] == events.RESPONSE_CREATE
-    assert kick["response"]["tool_choice"]["name"] == "search"
+def _transcript(event_id="t1", text="how do I ask for a raise"):
+    return {
+        "type": events.INPUT_TRANSCRIPTION_COMPLETED,
+        "event_id": event_id,
+        "transcript": text,
+    }
 
 
-async def test_buffer_committed_also_starts_workflow(settings):
-    # The primary trigger: fires with server VAD even when transcription is off.
-    out = Collector()
-    ctrl = _controller(settings, [], out)
-    await ctrl.handle_event(
-        {"type": events.INPUT_AUDIO_BUFFER_COMMITTED, "event_id": "c1"}
-    )
-    kick = out.sent[-1]
-    assert kick["type"] == events.RESPONSE_CREATE
-    assert kick["response"]["tool_choice"]["name"] == "search"
+def _response_create(cmd):
+    return cmd.get("type") == events.RESPONSE_CREATE
 
 
-async def test_turn_kicked_at_most_once_per_turn(settings):
-    # Both committed and transcription.completed can arrive for one turn; the
-    # workflow must be kicked only once.
-    out = Collector()
-    ctrl = _controller(settings, [], out)
-    await ctrl.handle_event(
-        {"type": events.INPUT_AUDIO_BUFFER_COMMITTED, "event_id": "c1"}
-    )
-    await ctrl.handle_event(
-        {"type": events.INPUT_TRANSCRIPTION_COMPLETED, "event_id": "t1"}
-    )
-    kicks = [c for c in out.sent if c.get("type") == events.RESPONSE_CREATE]
-    assert len(kicks) == 1
-
-
-async def test_function_call_runs_search_and_correlates_call_id(settings):
+async def test_transcript_triggers_search_and_grounded_response(settings):
     docs = [RetrievedDoc("doc-1", "T", "content", "u", 1.0)]
     out = Collector()
     ctrl = _controller(settings, docs, out)
-    await ctrl.handle_event(_call_event(call_id="abc"))
+    await ctrl.handle_event(_transcript(text="negotiation tactics"))
 
-    types = [c.get("type") or c.get("_coach") for c in out.sent]
-    assert "sources" in types
-    assert events.CONVERSATION_ITEM_CREATE in types
-    assert events.RESPONSE_CREATE in types
-
-    tool_output = next(
-        c for c in out.sent if c.get("type") == events.CONVERSATION_ITEM_CREATE
-    )
-    assert tool_output["item"]["call_id"] == "abc"  # correlation
+    # Sources envelope ties citations to retrieved ids.
     sources = next(c for c in out.sent if c.get("_coach") == "sources")
     assert sources["sources"][0]["source_id"] == "doc-1"
+    # A grounded response.create is emitted with the grounding injected.
+    resp = next(c for c in out.sent if _response_create(c))
+    assert "[doc-1]" in resp["response"]["instructions"]
+
+
+async def test_search_uses_the_transcript_text(settings):
+    out = Collector()
+    retriever = FakeRetriever([])
+    ctrl = SidebandController(
+        settings, out, retriever=retriever, response_policy=ResponsePolicy(settings)
+    )
+    await ctrl.handle_event(_transcript(text="salary conversation"))
+    assert retriever.queries == ["salary conversation"]
 
 
 async def test_empty_retrieval_emits_no_results_without_answering(settings):
     out = Collector()
     ctrl = _controller(settings, [], out)
-    await ctrl.handle_event(_call_event(call_id="e1"))
-    tool_output = next(
-        c for c in out.sent if c.get("type") == events.CONVERSATION_ITEM_CREATE
-    )
-    assert "NO_RESULTS" in tool_output["item"]["output"]
+    await ctrl.handle_event(_transcript())
     sources = next(c for c in out.sent if c.get("_coach") == "sources")
     assert sources["sources"] == []
+    resp = next(c for c in out.sent if _response_create(c))
+    assert "NO_RESULTS" in resp["response"]["instructions"]
 
 
-async def test_duplicate_function_call_is_ignored(settings):
+async def test_duplicate_transcript_is_ignored(settings):
     docs = [RetrievedDoc("doc-1", "T", "c", "u", 1.0)]
     out = Collector()
     retriever = FakeRetriever(docs)
     ctrl = SidebandController(
         settings, out, retriever=retriever, response_policy=ResponsePolicy(settings)
     )
-    evt = _call_event(call_id="dup")
+    evt = _transcript(event_id="dup")
     await ctrl.handle_event(evt)
     await ctrl.handle_event(dict(evt))  # same event_id
     assert len(retriever.queries) == 1  # search ran only once
 
 
-async def test_function_call_missing_call_id_is_ignored(settings):
+async def test_overlapping_turn_is_deferred_then_served(settings):
+    # Second completed turn while the first workflow is busy must not start a
+    # competing response, but should be served once the first finishes.
     out = Collector()
-    ctrl = _controller(settings, [RetrievedDoc("d", "t", "c", "u", 1.0)], out)
+    docs = [RetrievedDoc("doc-1", "T", "c", "u", 1.0)]
+    ctrl = _controller(settings, docs, out)
+
+    # Turn 1: speech + transcript -> workflow starts, response emitted, active.
     await ctrl.handle_event(
-        {"type": events.RESPONSE_FUNCTION_CALL_ARGUMENTS_DONE, "event_id": "x"}
+        {"type": events.INPUT_AUDIO_BUFFER_SPEECH_STARTED, "event_id": "s1"}
     )
-    assert out.sent == []
+    await ctrl.handle_event(_transcript(event_id="t1", text="first"))
+    await ctrl.handle_event({"type": events.RESPONSE_CREATED, "event_id": "rc1"})
+    kicks1 = sum(1 for c in out.sent if _response_create(c))
+    assert kicks1 == 1
+
+    # Turn 2 completes while busy -> deferred, no second response yet.
+    await ctrl.handle_event(
+        {"type": events.INPUT_AUDIO_BUFFER_SPEECH_STARTED, "event_id": "s2"}
+    )
+    await ctrl.handle_event(_transcript(event_id="t2", text="second"))
+    kicks2 = sum(1 for c in out.sent if _response_create(c))
+    assert kicks2 == 1
+
+    # First response finishes -> deferred turn 2 is served.
+    await ctrl.handle_event({"type": events.RESPONSE_DONE, "event_id": "rd1"})
+    kicks3 = sum(1 for c in out.sent if _response_create(c))
+    assert kicks3 == 2
 
 
 async def test_stale_results_discarded_after_interruption(settings):
-    # Simulate the user barging in WHILE retrieval is running: the search bumps
-    # the turn, so the result is stale and must be dropped.
+    # User barges in WHILE retrieval runs: the search bumps the turn, so the
+    # result is stale and no sources/response are sent for it.
     out = Collector()
     holder = {}
 
     def bump():
-        holder["ctrl"]._turn_id += 1  # user started a new turn mid-search
+        holder["ctrl"]._turn_id += 1
 
     ctrl = _controller(
         settings, [RetrievedDoc("d", "t", "c", "u", 1.0)], out, on_search=bump
     )
     holder["ctrl"] = ctrl
-    await ctrl.handle_event(_call_event(call_id="stale"))
+    await ctrl.handle_event(_transcript())
 
-    # No tool output / response for the stale turn.
-    assert not any(c.get("type") == events.CONVERSATION_ITEM_CREATE for c in out.sent)
     assert not any(c.get("_coach") == "sources" for c in out.sent)
+    assert not any(_response_create(c) for c in out.sent)

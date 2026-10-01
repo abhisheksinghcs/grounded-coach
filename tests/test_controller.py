@@ -18,13 +18,12 @@ class Collector:
         self.sent.append(command)
 
 
-async def test_start_registers_search_tool(settings):
+async def test_start_sends_no_tools(settings):
+    # Grounding is backend-driven; no tools are registered on the session.
     out = Collector()
     ctrl = SidebandController(settings, out)
     await ctrl.start()
-    assert out.sent[0]["type"] == events.SESSION_UPDATE
-    tools = out.sent[0]["session"]["tools"]
-    assert any(t["name"] == "search" for t in tools)
+    assert out.sent == []
 
 
 async def test_duplicate_events_are_dropped(settings):
