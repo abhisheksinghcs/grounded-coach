@@ -15,6 +15,7 @@ Responsibilities grow by milestone:
 
 from __future__ import annotations
 
+import json
 import logging
 from collections import OrderedDict
 from collections.abc import Awaitable, Callable
@@ -54,6 +55,8 @@ class SidebandController:
         # The turn a currently in-flight response/search belongs to. Results
         # that arrive for a superseded turn are discarded (M5).
         self._active_turn: int | None = None
+        # Whether a model response is currently in progress (for barge-in).
+        self._response_active = False
         self._closed = False
 
     # -- lifecycle ---------------------------------------------------------
@@ -95,6 +98,8 @@ class SidebandController:
             await self._on_user_turn_complete(event)
         elif etype == events.RESPONSE_FUNCTION_CALL_ARGUMENTS_DONE:
             await self._on_function_call(event)
+        elif etype == events.RESPONSE_DONE:
+            self._response_active = False
         # Other events (deltas, session.created, etc.) need no server action;
         # the browser renders them directly.
 
@@ -117,15 +122,81 @@ class SidebandController:
 
     async def _on_speech_started(self, event: dict[str, Any]) -> None:
         # User (re)started talking. Bump the turn so any in-flight results for
-        # the previous turn become stale. Full interruption handling: M5.
+        # the previous turn become stale. If a response is active, cancel it
+        # (barge-in) so the model stops talking over the user (M5).
         self._turn_id += 1
         logger.debug("Speech started; turn -> %d", self._turn_id)
+        if self._response_active:
+            await self._send(events.build_response_cancel())
+            self._response_active = False
 
     async def _on_user_turn_complete(self, event: dict[str, Any]) -> None:
-        # Explicit workflow kick happens in M4 (avoid listening deadlock).
-        # M1 only records the turn boundary.
-        logger.debug("User turn complete (turn %d)", self._turn_id)
+        # Explicitly start the grounded workflow after a completed turn so we
+        # never deadlock waiting for an auto-response that won't come.
+        if self._policy is None:
+            logger.debug("User turn complete (turn %d); no policy wired", self._turn_id)
+            return
+        self._active_turn = self._turn_id
+        self._response_active = True
+        await self._send(self._policy.on_turn_complete())
 
     async def _on_function_call(self, event: dict[str, Any]) -> None:
-        # Grounded tool loop is implemented in M4.
-        logger.debug("Function call received (turn %d)", self._turn_id)
+        # The model asked to run the `search` tool. Execute retrieval, then
+        # return the tool output (same call_id) and request a grounded response.
+        if self._retriever is None or self._policy is None:
+            logger.debug("Function call but retriever/policy not wired")
+            return
+        call_id = event.get("call_id")
+        if not call_id:
+            logger.warning("function_call event missing call_id; ignoring")
+            return
+
+        query = self._extract_query(event)
+        turn_at_call = self._turn_id
+
+        docs = []
+        try:
+            docs = await self._retriever.search(query)
+        except Exception as exc:  # retrieval failure -> treat as empty grounding
+            logger.warning("Retrieval failed: %s", exc)
+
+        # Discard stale results: if the user started a new turn while we were
+        # searching, this result is obsolete — drop it (M5).
+        if turn_at_call != self._turn_id:
+            logger.debug(
+                "Discarding stale search result (turn %d != %d)",
+                turn_at_call,
+                self._turn_id,
+            )
+            return
+
+        # Tell the browser which source ids back the upcoming suggestion so it
+        # can tie displayed citations to retrieved documents.
+        await self._send(
+            {
+                "_coach": "sources",
+                "turn": turn_at_call,
+                "call_id": call_id,
+                "sources": [
+                    {"source_id": d.source_id, "title": d.title, "url": d.url}
+                    for d in docs
+                ],
+            }
+        )
+
+        for command in self._policy.on_results(call_id, docs):
+            await self._send(command)
+
+    @staticmethod
+    def _extract_query(event: dict[str, Any]) -> str:
+        """Pull the search query out of the function-call arguments JSON."""
+        raw = event.get("arguments")
+        if isinstance(raw, dict):
+            return str(raw.get("query", "")).strip()
+        if isinstance(raw, str) and raw.strip():
+            try:
+                parsed = json.loads(raw)
+                return str(parsed.get("query", "")).strip()
+            except (ValueError, AttributeError):
+                return raw.strip()
+        return ""

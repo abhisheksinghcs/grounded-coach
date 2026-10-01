@@ -77,14 +77,21 @@ function openSideband() {
   ws.onclose = () => log("Sideband closed");
   ws.onerror = () => log("Sideband error");
   ws.onmessage = (ev) => {
-    // Commands from the backend -> forward onto the WebRTC data channel.
+    // Messages from the backend are either UI-only envelopes (_coach) or
+    // realtime commands to forward onto the WebRTC data channel.
+    let msg;
     try {
-      const cmd = JSON.parse(ev.data);
-      if (state.dc && state.dc.readyState === "open") {
-        state.dc.send(JSON.stringify(cmd));
-      }
+      msg = JSON.parse(ev.data);
     } catch (e) {
-      log("Bad sideband command: " + e.message);
+      log("Bad sideband message: " + e.message);
+      return;
+    }
+    if (msg && msg._coach === "sources") {
+      renderSources(msg.sources || []);
+      return; // UI only; never forwarded to the model
+    }
+    if (state.dc && state.dc.readyState === "open") {
+      state.dc.send(JSON.stringify(msg));
     }
   };
   return ws;
@@ -130,6 +137,29 @@ function appendSuggestion(text) {
 
 function finalizeSuggestion() {
   state.currentSuggestion = null;
+}
+
+// Render the retrieved sources backing the next suggestion, so displayed
+// citations [id] map to real documents. Empty list => no grounding found.
+function renderSources(sources) {
+  state.lastSources = sources;
+  const card = document.createElement("div");
+  card.className = "suggestion";
+  if (!sources.length) {
+    card.innerHTML = "<b>No grounded sources found</b> — the coach will say it lacks grounded information.";
+  } else {
+    const items = sources
+      .map((s) => {
+        const label = s.title || s.source_id;
+        const link = s.url
+          ? `<a href="${s.url}" target="_blank" rel="noopener">${label}</a>`
+          : label;
+        return `<li>[${s.source_id}] ${link}</li>`;
+      })
+      .join("");
+    card.innerHTML = `<b>Grounding sources</b><ul>${items}</ul>`;
+  }
+  els.suggestions.prepend(card);
 }
 
 // --- WebRTC negotiation ----------------------------------------------------

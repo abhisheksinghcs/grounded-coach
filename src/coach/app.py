@@ -22,6 +22,7 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from coach.config import Settings, get_settings
+from coach.policy.response_policy import ResponsePolicy
 from coach.realtime.controller import SidebandController
 from coach.realtime.session import (
     SessionError,
@@ -93,7 +94,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         async def send(command: dict) -> None:
             await ws.send_json(command)
 
-        controller = SidebandController(settings, send)
+        retriever = SearchAdapter(settings, client=app.state.http)
+        policy = ResponsePolicy(settings)
+        controller = SidebandController(
+            settings, send, retriever=retriever, response_policy=policy
+        )
         try:
             await controller.start()
             while True:
