@@ -44,6 +44,23 @@ def test_session_endpoint_returns_ephemeral_token(settings):
 
 
 @respx.mock
+def test_session_endpoint_tailors_persona_from_profile(settings):
+    route = respx.post(URL).mock(
+        return_value=httpx.Response(200, json={"value": "ek_t"})
+    )
+    with TestClient(create_app(settings)) as client:
+        resp = client.post(
+            "/api/session",
+            json={"profile": {"name": "Dana", "company": "Contoso"}},
+        )
+        assert resp.status_code == 200
+    # The tailored persona must reach the minted session instructions.
+    sent = route.calls.last.request.read().decode()
+    assert "You are Dana" in sent
+    assert "Contoso" in sent
+
+
+@respx.mock
 def test_session_endpoint_propagates_auth_failure(settings):
     respx.post(URL).mock(return_value=httpx.Response(401, json={"error": "nope"}))
     with TestClient(create_app(settings)) as client:

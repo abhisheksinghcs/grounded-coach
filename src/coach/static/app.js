@@ -51,6 +51,25 @@ async function fetchJson(url, opts) {
   return resp.json();
 }
 
+// --- customer profile (tailor the role-played customer) --------------------
+
+function readCustomerProfile() {
+  const val = (id) => (document.getElementById(id)?.value || "").trim();
+  const profile = {
+    name: val("p-name"),
+    role: val("p-role"),
+    company: val("p-company"),
+    website: val("p-website"),
+    industry: val("p-industry"),
+    competitors: val("p-competitors"),
+    pain: val("p-pain"),
+    wants: val("p-wants"),
+    notes: val("p-notes"),
+  };
+  // Drop empty fields so the backend keeps its defaults.
+  return Object.fromEntries(Object.entries(profile).filter(([, v]) => v));
+}
+
 // --- capture ---------------------------------------------------------------
 
 async function captureMic() {
@@ -218,7 +237,11 @@ async function connect() {
   }
 
   setStatus("negotiating session…");
-  const session = await fetchJson("/api/session", { method: "POST" });
+  const session = await fetchJson("/api/session", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ profile: readCustomerProfile() }),
+  });
   log("Ephemeral session minted (expires_at=" + session.expires_at + ")");
 
   const pc = new RTCPeerConnection();

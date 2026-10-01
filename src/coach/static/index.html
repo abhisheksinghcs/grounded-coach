@@ -18,6 +18,9 @@
       #stop { background: #2a2f4a; color: #e6e8ef; }
       button:disabled { opacity: 0.5; cursor: not-allowed; }
       label { display: block; margin: 10px 0; font-size: 14px; }
+      input[type="text"] { width: 100%; box-sizing: border-box; margin-top: 4px; padding: 6px 8px; border-radius: 6px; border: 1px solid #2c3150; background: #0a0c16; color: #e6e8ef; font-size: 13px; }
+      details#tailor { margin-top: 14px; border: 1px solid #262a40; border-radius: 8px; padding: 8px 12px; }
+      details#tailor summary { cursor: pointer; font-size: 14px; color: #e6e8ef; }
       .status { margin-top: 16px; font-size: 13px; color: #8b90a7; }
       .status b { color: #e6e8ef; }
       #suggestions { display: flex; flex-direction: column; gap: 10px; }
@@ -29,7 +32,7 @@
   <body>
     <header>
       <h1>Grounded Coach</h1>
-      <div class="sub">A grounded, real-time voice agent. Answers are grounded in your knowledge base; audio stays between your browser and Azure, and transcripts are not stored.</div>
+      <div class="sub">Practice your pitch with <b>Emma</b>, an AI-generated customer. Speak your demo; she responds in character, grounded in the knowledge base. Audio stays between your browser and Azure; transcripts are not stored.</div>
     </header>
     <main>
       <section class="panel controls">
@@ -43,6 +46,20 @@
           audio” in the browser dialog. Screen video is never uploaded. System
           audio support varies by OS/browser.
         </div>
+
+        <details id="tailor">
+          <summary>Tailor the customer</summary>
+          <div class="note">Optional — reflect a real customer. Leave blank for the default “Emma.” Applied when you click Start.</div>
+          <label>Name <input type="text" id="p-name" placeholder="Emma" /></label>
+          <label>Role <input type="text" id="p-role" placeholder="e.g. VP of Operations" /></label>
+          <label>Company <input type="text" id="p-company" placeholder="e.g. Contoso" /></label>
+          <label>Website <input type="text" id="p-website" placeholder="e.g. contoso.com" /></label>
+          <label>Industry <input type="text" id="p-industry" placeholder="e.g. Pharmaceuticals" /></label>
+          <label>Competitors <input type="text" id="p-competitors" placeholder="e.g. Acme, Globex" /></label>
+          <label>Their pain <input type="text" id="p-pain" placeholder="optional" /></label>
+          <label>What they want <input type="text" id="p-wants" placeholder="optional" /></label>
+          <label>Notes <input type="text" id="p-notes" placeholder="anything else" /></label>
+        </details>
 
         <div class="status">Status: <b id="status">idle</b></div>
         <pre id="log"></pre>

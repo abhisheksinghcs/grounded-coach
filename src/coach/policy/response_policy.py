@@ -47,8 +47,13 @@ _EMPTY_INSTRUCTIONS = (
 
 
 class ResponsePolicy:
-    def __init__(self, settings: Settings) -> None:
+    def __init__(self, settings: Settings, persona: str | None = None) -> None:
         self._settings = settings
+        if persona is None:
+            from coach.persona import resolve_persona
+
+            persona = resolve_persona(settings)
+        self._persona = persona
 
     def build_grounded_response(
         self, transcript: str, docs: list[RetrievedDoc]
@@ -59,7 +64,7 @@ class ResponsePolicy:
         per-response ``instructions`` (overriding the session instructions for
         this response). No tools / function-calling are involved.
         """
-        base = self._settings.coach_instructions
+        base = self._persona
         if docs:
             body = self.format_grounding(docs)
         else:

@@ -71,25 +71,10 @@ class Settings(BaseSettings):
     # Whether the model auto-responds on VAD stop. Default OFF: the backend
     # explicitly drives search + response so answers are always grounded.
     coach_auto_response: bool = Field(default=False)
-    coach_voice: str = Field(default="cedar")
-    coach_instructions: str = Field(
-        default=(
-            "You are a knowledgeable Microsoft AI solutions advisor speaking "
-            "with a potential customer in a live, real-time voice conversation. "
-            "Your goal is to help them see how the Microsoft AI stack "
-            "(Microsoft 365 Copilot, Copilot agents and Cowork, Azure AI, "
-            "Microsoft Fabric, and related services) can solve their problems — "
-            "using the grounded Caldova examples as concrete, credible evidence. "
-            "Be warm, consultative, and persuasive, but always honest — never "
-            "pushy and never misleading. Ground every specific claim, "
-            "capability, figure, and example in the provided GROUNDING context; "
-            "do not invent specifics that aren't supported there. When the "
-            "caller raises a need, goal, or objection, connect it to a relevant "
-            "grounded Microsoft AI capability or Caldova example, and guide them "
-            "toward adopting the Microsoft AI stack. Ask short questions to "
-            "understand their needs. Keep spoken replies brief and natural."
-        )
-    )
+    coach_voice: str = Field(default="marin")
+    # Optional FULL persona override. When empty (default), the tailorable
+    # customer persona in coach/persona.py is used (the "Emma" role-play).
+    coach_instructions: str = Field(default="")
 
     # ---- Privacy / persistence ------------------------------------------
     # Audio and transcripts are NOT persisted by default.

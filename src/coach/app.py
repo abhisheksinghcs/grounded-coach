@@ -17,11 +17,12 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 import httpx
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from coach.config import Settings, get_settings
+from coach.persona import CustomerProfile, resolve_persona
 from coach.policy.response_policy import ResponsePolicy
 from coach.realtime.controller import SidebandController
 from coach.realtime.session import (
@@ -54,6 +55,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         # One shared async HTTP client for minting tokens.
         app.state.http = httpx.AsyncClient(timeout=15.0)
         app.state.token_provider = TokenProvider(settings)
+        # Active persona (resolved from the default profile until tailored).
+        app.state.profile = CustomerProfile()
+        app.state.persona = resolve_persona(settings, app.state.profile)
         yield
         await app.state.http.aclose()
 
@@ -72,12 +76,23 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
 
     @app.post("/api/session")
-    async def api_session() -> JSONResponse:
+    async def api_session(request: Request) -> JSONResponse:
+        # The browser may send a tailored customer profile to role-play.
+        profile = CustomerProfile()
+        try:
+            body = await request.json()
+            if isinstance(body, dict) and isinstance(body.get("profile"), dict):
+                profile = CustomerProfile.from_dict(body["profile"])
+        except Exception:
+            pass
+        app.state.profile = profile
+        app.state.persona = resolve_persona(settings, profile)
         try:
             session = await mint_ephemeral_session(
                 settings,
                 app.state.token_provider,
                 client=app.state.http,
+                instructions=app.state.persona,
             )
         except SessionError as exc:
             status = exc.status_code or 502
@@ -105,7 +120,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             await ws.send_json(command)
 
         retriever = SearchAdapter(settings, client=app.state.http)
-        policy = ResponsePolicy(settings)
+        # Use the persona tailored by the most recent /api/session call.
+        persona = getattr(app.state, "persona", None)
+        policy = ResponsePolicy(settings, persona=persona)
         controller = SidebandController(
             settings, send, retriever=retriever, response_policy=policy
         )

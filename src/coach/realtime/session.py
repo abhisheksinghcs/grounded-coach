@@ -74,21 +74,23 @@ class TokenProvider:
         return token.token
 
 
-def build_session_config(settings: Settings) -> dict[str, Any]:
+def build_session_config(
+    settings: Settings, instructions: str | None = None
+) -> dict[str, Any]:
     """Build the GA ``session`` payload for the client-secrets request.
 
-    Turn detection is configured with ``create_response`` controlled by the
-    policy flag: when False (default), the model will NOT auto-respond on a
-    completed turn, so the backend can require retrieval before any answer.
-    Output modality defaults to text-only (silent coaching).
+    ``instructions`` is the resolved persona; when omitted it falls back to the
+    configured/default persona.
     """
-    # Azure accepts ["text"] OR ["audio"] (not both). Audio-only still streams a
-    # text transcript (response.output_audio_transcript.delta) for the UI.
+    if instructions is None:
+        from coach.persona import resolve_persona
+
+        instructions = resolve_persona(settings)
     output_modalities = ["audio"] if settings.coach_spoken_mode else ["text"]
     session: dict[str, Any] = {
         "type": "realtime",
         "model": settings.azure_openai_realtime_deployment,
-        "instructions": settings.coach_instructions,
+        "instructions": instructions,
         "output_modalities": output_modalities,
         "audio": {
             "input": {
@@ -114,12 +116,14 @@ async def mint_ephemeral_session(
     token_provider: TokenProvider,
     *,
     client: httpx.AsyncClient,
+    instructions: str | None = None,
 ) -> EphemeralSession:
     """Call the GA client-secrets endpoint and return a browser-safe session.
 
+    ``instructions`` is the resolved persona for this session.
     Raises :class:`SessionError` on auth failure or malformed responses.
     """
-    payload = {"session": build_session_config(settings)}
+    payload = {"session": build_session_config(settings, instructions)}
     headers = {"Content-Type": "application/json"}
     headers.update(token_provider.auth_headers())
 
