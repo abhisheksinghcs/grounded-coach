@@ -116,6 +116,30 @@ Open <http://127.0.0.1:8000>, click **Start**, and grant microphone access.
 
 ---
 
+## Optional tab/system audio (Milestone 2)
+
+Enable the **Computer / tab audio** checkbox to add a second audio source via
+`getDisplayMedia`. Behavior and caveats:
+
+* You must pick a source in the browser dialog **and** enable "Share tab audio"
+  / "Share system audio". If no audio is shared, capture is refused and all
+  tracks are released (no leaked video).
+* **Screen video is never uploaded** — video tracks are stopped and removed
+  immediately; only the audio track is added to the connection.
+* **OS/browser support varies and is not universal:**
+  * **macOS (your platform):** Chrome/Edge can capture audio from a shared
+    **Chrome/Edge tab** ("Share tab audio"). Full **desktop/system** audio
+    capture is generally **not** available via `getDisplayMedia` on macOS.
+  * Windows (Chrome/Edge) additionally supports "Share system audio".
+  * Safari/Firefox support is limited.
+* No speaker diarization and no universal desktop-call capture are claimed.
+
+> The capture *logic* (video-strip, audio-presence check, release-on-failure)
+> is unit-tested in Node. The live browser capture itself has **not** been
+> exercised on any OS/browser in this environment.
+
+---
+
 ## Testing
 
 Mocked (offline) tests are the default and never touch the network.
@@ -155,7 +179,7 @@ unless those `live` tests (or a manual browser session) were actually run.
 | # | Milestone | State |
 |---|-----------|-------|
 | 1 | Realtime connect + mic capture | ✅ built, mocked tests pass |
-| 2 | Optional tab/system audio | ⏳ next |
+| 2 | Optional tab/system audio | ✅ built, capture logic tested (browser not live-tested) |
 | 3 | Azure AI Search retrieval (no audio) | ⏳ |
 | 4 | Grounded suggestions + citations | ⏳ |
 | 5 | Interruption / cancel / reconnect / spoken | ⏳ |

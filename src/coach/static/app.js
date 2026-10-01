@@ -5,7 +5,7 @@
 
 import {
   assertAudioTrackPresent,
-  stripAndStopVideoTracks,
+  prepareDisplayAudio,
   stopAllTracks,
   getAudioTracks,
 } from "./capture.js";
@@ -63,13 +63,8 @@ async function captureSystemAudio() {
     video: true, // required by the API to show a picker, but we drop it below
     audio: true,
   });
-  stripAndStopVideoTracks(stream); // never upload screen video
-  try {
-    assertAudioTrackPresent(stream, "system/tab audio");
-  } catch (e) {
-    stopAllTracks(stream);
-    throw e;
-  }
+  // Strips+stops video, verifies audio exists, releases all on failure.
+  prepareDisplayAudio(stream, "system/tab audio");
   return stream;
 }
 

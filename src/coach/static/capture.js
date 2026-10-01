@@ -55,6 +55,22 @@ export function stripAndStopVideoTracks(stream) {
 }
 
 /**
+ * Prepare a display-capture (getDisplayMedia) stream for audio-only use:
+ *   1. stop + remove all video tracks (we never upload screen video), then
+ *   2. verify an audio track remains; if not, release everything and throw.
+ * Returns the remaining audio tracks on success.
+ */
+export function prepareDisplayAudio(stream, source = "system/tab audio") {
+  stripAndStopVideoTracks(stream);
+  try {
+    return assertAudioTrackPresent(stream, source);
+  } catch (e) {
+    stopAllTracks(stream);
+    throw e;
+  }
+}
+
+/**
  * Stop every track across the provided streams. Called on stop/disconnect so
  * capture devices (mic / tab audio) are released promptly.
  * Returns the number of tracks stopped.
