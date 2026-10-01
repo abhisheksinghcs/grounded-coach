@@ -56,7 +56,7 @@ def test_session_endpoint_tailors_persona_from_profile(settings):
         assert resp.status_code == 200
     # The tailored persona must reach the minted session instructions.
     sent = route.calls.last.request.read().decode()
-    assert "You are Dana" in sent
+    assert "Dana" in sent
     assert "Contoso" in sent
 
 

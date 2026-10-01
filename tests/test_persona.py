@@ -1,4 +1,4 @@
-"""Tailor-customer persona: profile building, sanitization, and resolution."""
+"""Presenter persona: profile building, sanitization, and resolution."""
 
 from __future__ import annotations
 
@@ -11,17 +11,17 @@ from coach.persona import (
 )
 
 
-def test_default_profile_is_emma_role_play():
+def test_default_persona_is_presenter_addressing_emma():
     text = build_persona_instructions(CustomerProfile())
-    assert "You are Emma" in text
-    assert "CUSTOMER being pitched to" in text
-    assert "never interrupt" in text.lower()
-    # Default Emma pain/wants from the course script.
-    assert "takes too long to piece it together" in text
-    assert "keep up with the pace of change" in text
+    assert "expert presenter" in text.lower()
+    assert "Copilot Continuum" in text
+    assert "presenting to a prospective customer: Emma" in text
+    # It answers; it does not role-play the customer.
+    assert "answer the audience's questions" in text.lower()
+    assert "never interrupt" in text.replace("\n", " ")
 
 
-def test_tailored_profile_is_woven_in():
+def test_tailored_audience_is_woven_in():
     profile = CustomerProfile.from_dict(
         {
             "name": "Dana",
@@ -34,12 +34,18 @@ def test_tailored_profile_is_woven_in():
         }
     )
     text = build_persona_instructions(profile)
-    assert "You are Dana" in text
+    assert "presenting to a prospective customer: Dana" in text
     assert "VP of Operations" in text
     assert "Contoso" in text and "contoso.com" in text
     assert "Manufacturing industry" in text
     assert "Acme, Globex" in text
     assert "data privacy" in text
+
+
+def test_persona_requires_grounding_no_guessing():
+    text = build_persona_instructions(CustomerProfile())
+    assert "do not invent" in text.lower()
+    assert "do not guess" in text.lower()
 
 
 def test_from_dict_sanitizes_and_caps():
@@ -68,4 +74,4 @@ def test_resolve_persona_prefers_explicit_override():
 def test_resolve_persona_uses_profile_when_no_override():
     s = Settings(_env_file=None, azure_openai_api_key="k")  # no override
     text = resolve_persona(s, CustomerProfile.from_dict({"name": "Dana"}))
-    assert "You are Dana" in text
+    assert "presenting to a prospective customer: Dana" in text
