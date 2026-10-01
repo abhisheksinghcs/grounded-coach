@@ -151,6 +151,9 @@ uv run pytest
 # Frontend capture logic (missing-audio-track guard, track release)
 node --test 'tests/js/**/*.test.mjs'
 
+# Standalone retrieval (no audio) — validate index + field mappings
+uv run python -m coach.retrieval "your query"
+
 # Live Azure smoke tests (opt-in; requires real .env + network)
 uv run pytest -m live
 ```
@@ -180,6 +183,6 @@ unless those `live` tests (or a manual browser session) were actually run.
 |---|-----------|-------|
 | 1 | Realtime connect + mic capture | ✅ built, mocked tests pass |
 | 2 | Optional tab/system audio | ✅ built, capture logic tested (browser not live-tested) |
-| 3 | Azure AI Search retrieval (no audio) | ⏳ |
+| 3 | Azure AI Search retrieval (no audio) | ✅ built, mocked tests pass (live needs an index) |
 | 4 | Grounded suggestions + citations | ⏳ |
 | 5 | Interruption / cancel / reconnect / spoken | ⏳ |

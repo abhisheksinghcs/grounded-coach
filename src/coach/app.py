@@ -28,6 +28,7 @@ from coach.realtime.session import (
     TokenProvider,
     mint_ephemeral_session,
 )
+from coach.retrieval.search_adapter import RetrievalError, SearchAdapter
 
 logger = logging.getLogger("coach.app")
 
@@ -72,6 +73,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             logger.warning("Session mint failed: %s", exc)
             return JSONResponse({"error": str(exc)}, status_code=status)
         return JSONResponse(session.to_public_dict())
+
+    @app.post("/api/search")
+    async def api_search(payload: dict) -> JSONResponse:
+        """Standalone retrieval endpoint (no audio) for testing grounding."""
+        query = (payload or {}).get("query", "")
+        adapter = SearchAdapter(settings, client=app.state.http)
+        try:
+            docs = await adapter.search(query)
+        except RetrievalError as exc:
+            status = exc.status_code or 502
+            return JSONResponse({"error": str(exc)}, status_code=status)
+        return JSONResponse({"count": len(docs), "results": [d.as_dict() for d in docs]})
 
     @app.websocket("/ws/sideband")
     async def ws_sideband(ws: WebSocket) -> None:

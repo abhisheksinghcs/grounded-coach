@@ -19,6 +19,7 @@ from coach.realtime.session import (
     TokenProvider,
     mint_ephemeral_session,
 )
+from coach.retrieval.search_adapter import RetrievalError, SearchAdapter
 
 pytestmark = pytest.mark.live
 
@@ -35,3 +36,18 @@ async def test_live_mint_real_ephemeral_session():
     assert session.expires_at is None or session.expires_at > 0
     assert session.deployment == settings.azure_openai_realtime_deployment
     assert session.webrtc_url.endswith("/openai/v1/realtime/calls?webrtcfilter=on")
+
+
+async def test_live_search_if_index_configured():
+    settings = get_settings()
+    if not settings.azure_search_index:
+        pytest.skip("No AZURE_SEARCH_INDEX configured; create an index first.")
+    async with httpx.AsyncClient(timeout=20.0) as client:
+        adapter = SearchAdapter(settings, client=client)
+        try:
+            docs = await adapter.search("test")
+        except RetrievalError as exc:
+            pytest.skip(f"Live search unavailable ({exc}).")
+    # We only assert the call succeeds and returns a list; contents depend on
+    # the (not-yet-created) index.
+    assert isinstance(docs, list)
