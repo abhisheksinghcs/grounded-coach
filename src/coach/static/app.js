@@ -27,6 +27,8 @@ const state = {
   micStream: null,
   systemStream: null,
   currentSuggestion: null,
+  lastSources: [],
+  stopping: false,
 };
 
 function log(msg) {
@@ -74,7 +76,15 @@ function openSideband() {
   const proto = location.protocol === "https:" ? "wss" : "ws";
   const ws = new WebSocket(`${proto}://${location.host}/ws/sideband`);
   ws.onopen = () => log("Sideband connected");
-  ws.onclose = () => log("Sideband closed");
+  ws.onclose = () => {
+    log("Sideband closed");
+    // Unexpected drop (not a user Stop): release capture so devices aren't
+    // left open, then reset UI so the user can reconnect cleanly.
+    if (!state.stopping && state.pc) {
+      log("Sideband dropped — cleaning up for reconnect");
+      disconnect();
+    }
+  };
   ws.onerror = () => log("Sideband error");
   ws.onmessage = (ev) => {
     // Messages from the backend are either UI-only envelopes (_coach) or
@@ -248,6 +258,7 @@ async function connect() {
 // --- teardown --------------------------------------------------------------
 
 function disconnect() {
+  state.stopping = true;
   // Release capture tracks first (mic + system audio).
   const stopped = stopAllTracks(state.micStream, state.systemStream);
   log(`Released ${stopped} capture track(s)`);
@@ -270,6 +281,7 @@ function disconnect() {
   setStatus("idle");
   els.start.disabled = false;
   els.stop.disabled = true;
+  state.stopping = false;
 }
 
 els.start.addEventListener("click", async () => {

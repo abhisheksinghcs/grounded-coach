@@ -9,9 +9,12 @@ ever touching your audio.
 By default the coach is **silent** (text suggestions only) and **grounded**
 (the backend requires retrieval before the model answers).
 
-> **Status:** built and tested milestone by milestone. See
-> [Milestone status](#milestone-status). All tests to date are **mocked/offline**;
-> no live Azure connectivity or audio capture has been exercised yet.
+> **Status:** all five milestones are built and tested milestone by milestone.
+> The **session-mint path is verified live** against `shhchat` (a real ephemeral
+> token was minted via the GA endpoint using Entra auth). Everything else is
+> covered by **mocked/offline** tests; **WebRTC media, real audio capture, and
+> live Search grounding have not been exercised** (grounding needs an index).
+> See [Milestone status](#milestone-status).
 
 ---
 
@@ -140,6 +143,19 @@ Enable the **Computer / tab audio** checkbox to add a second audio source via
 
 ---
 
+## Interruption, reconnection & spoken mode (Milestone 5)
+
+* **Barge-in:** if the user starts speaking while the coach is responding, the
+  backend sends `response.cancel` and bumps the turn.
+* **Stale results:** a search result whose turn was superseded (the user moved
+  on) is discarded instead of being sent.
+* **Reconnect cleanup:** on an unexpected sideband drop the browser releases
+  capture tracks and resets; each new connection gets a fresh controller.
+* **Spoken mode (opt-in):** set `COACH_SPOKEN_MODE=true` to have the coach speak
+  (`output_modalities: ["audio","text"]`). Default is silent text.
+
+---
+
 ## Testing
 
 Mocked (offline) tests are the default and never touch the network.
@@ -184,5 +200,5 @@ unless those `live` tests (or a manual browser session) were actually run.
 | 1 | Realtime connect + mic capture | ✅ built, mocked tests pass |
 | 2 | Optional tab/system audio | ✅ built, capture logic tested (browser not live-tested) |
 | 3 | Azure AI Search retrieval (no audio) | ✅ built, mocked tests pass (live needs an index) |
-| 4 | Grounded suggestions + citations | ⏳ |
-| 5 | Interruption / cancel / reconnect / spoken | ⏳ |
+| 4 | Grounded suggestions + citations | ✅ built, mocked tests pass |
+| 5 | Interruption / cancel / reconnect / spoken | ✅ built, mocked tests pass |
