@@ -55,6 +55,10 @@ class SidebandController:
         # The turn a currently in-flight response/search belongs to. Results
         # that arrive for a superseded turn are discarded (M5).
         self._active_turn: int | None = None
+        # The last turn for which we already kicked the response workflow, so a
+        # turn is kicked at most once even if several "turn complete" signals
+        # arrive (e.g. buffer committed AND transcription completed).
+        self._kicked_turn: int | None = None
         # Whether a model response is currently in progress (for barge-in).
         self._response_active = False
         self._closed = False
@@ -94,10 +98,19 @@ class SidebandController:
             await self._on_error(event)
         elif etype == events.INPUT_AUDIO_BUFFER_SPEECH_STARTED:
             await self._on_speech_started(event)
-        elif etype == events.INPUT_TRANSCRIPTION_COMPLETED:
+        elif etype in (
+            events.INPUT_AUDIO_BUFFER_COMMITTED,
+            events.INPUT_TRANSCRIPTION_COMPLETED,
+        ):
+            # Either signal means the user's turn is complete. The buffer-
+            # committed event fires with server VAD regardless of whether
+            # transcription is enabled, so it is the primary trigger.
             await self._on_user_turn_complete(event)
         elif etype == events.RESPONSE_FUNCTION_CALL_ARGUMENTS_DONE:
             await self._on_function_call(event)
+        elif etype == events.RESPONSE_CREATED:
+            # A model response actually started; track it for barge-in.
+            self._response_active = True
         elif etype == events.RESPONSE_DONE:
             self._response_active = False
         # Other events (deltas, session.created, etc.) need no server action;
@@ -136,8 +149,11 @@ class SidebandController:
         if self._policy is None:
             logger.debug("User turn complete (turn %d); no policy wired", self._turn_id)
             return
+        # Kick each turn at most once, even if several completion signals fire.
+        if self._kicked_turn == self._turn_id:
+            return
+        self._kicked_turn = self._turn_id
         self._active_turn = self._turn_id
-        self._response_active = True
         await self._send(self._policy.on_turn_complete())
 
     async def _on_function_call(self, event: dict[str, Any]) -> None:

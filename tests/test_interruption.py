@@ -36,10 +36,11 @@ def _controller(settings, out):
 async def test_barge_in_cancels_active_response(settings):
     out = Collector()
     ctrl = _controller(settings, out)
-    # A turn completes -> a response becomes active.
+    # A turn completes and the model's response actually starts.
     await ctrl.handle_event(
         {"type": events.INPUT_TRANSCRIPTION_COMPLETED, "event_id": "t1"}
     )
+    await ctrl.handle_event({"type": events.RESPONSE_CREATED, "event_id": "r1"})
     # User barges in -> controller must cancel the in-flight response.
     await ctrl.handle_event(
         {"type": events.INPUT_AUDIO_BUFFER_SPEECH_STARTED, "event_id": "s1"}
@@ -64,6 +65,7 @@ async def test_response_done_clears_active_flag(settings):
     await ctrl.handle_event(
         {"type": events.INPUT_TRANSCRIPTION_COMPLETED, "event_id": "t1"}
     )
+    await ctrl.handle_event({"type": events.RESPONSE_CREATED, "event_id": "r1"})
     await ctrl.handle_event({"type": events.RESPONSE_DONE, "event_id": "d1"})
     # After the response is done, a new speech_started must NOT cancel.
     await ctrl.handle_event(

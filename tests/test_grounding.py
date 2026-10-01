@@ -63,6 +63,33 @@ async def test_turn_complete_starts_search_workflow(settings):
     assert kick["response"]["tool_choice"]["name"] == "search"
 
 
+async def test_buffer_committed_also_starts_workflow(settings):
+    # The primary trigger: fires with server VAD even when transcription is off.
+    out = Collector()
+    ctrl = _controller(settings, [], out)
+    await ctrl.handle_event(
+        {"type": events.INPUT_AUDIO_BUFFER_COMMITTED, "event_id": "c1"}
+    )
+    kick = out.sent[-1]
+    assert kick["type"] == events.RESPONSE_CREATE
+    assert kick["response"]["tool_choice"]["name"] == "search"
+
+
+async def test_turn_kicked_at_most_once_per_turn(settings):
+    # Both committed and transcription.completed can arrive for one turn; the
+    # workflow must be kicked only once.
+    out = Collector()
+    ctrl = _controller(settings, [], out)
+    await ctrl.handle_event(
+        {"type": events.INPUT_AUDIO_BUFFER_COMMITTED, "event_id": "c1"}
+    )
+    await ctrl.handle_event(
+        {"type": events.INPUT_TRANSCRIPTION_COMPLETED, "event_id": "t1"}
+    )
+    kicks = [c for c in out.sent if c.get("type") == events.RESPONSE_CREATE]
+    assert len(kicks) == 1
+
+
 async def test_function_call_runs_search_and_correlates_call_id(settings):
     docs = [RetrievedDoc("doc-1", "T", "content", "u", 1.0)]
     out = Collector()

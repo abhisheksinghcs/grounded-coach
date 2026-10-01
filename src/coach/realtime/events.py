@@ -20,12 +20,17 @@ SESSION_CREATED = "session.created"
 SESSION_UPDATED = "session.updated"
 INPUT_AUDIO_BUFFER_SPEECH_STARTED = "input_audio_buffer.speech_started"
 INPUT_AUDIO_BUFFER_SPEECH_STOPPED = "input_audio_buffer.speech_stopped"
+# Fires with server VAD when the user's audio turn is committed as an input
+# item. This is the reliable "user turn complete" signal and does NOT depend on
+# input-audio transcription being enabled.
+INPUT_AUDIO_BUFFER_COMMITTED = "input_audio_buffer.committed"
 INPUT_TRANSCRIPTION_COMPLETED = (
     "conversation.item.input_audio_transcription.completed"
 )
 RESPONSE_FUNCTION_CALL_ARGUMENTS_DONE = "response.function_call_arguments.done"
 RESPONSE_OUTPUT_TEXT_DELTA = "response.output_text.delta"  # GA (was response.text.delta)
 RESPONSE_OUTPUT_AUDIO_TRANSCRIPT_DELTA = "response.output_audio_transcript.delta"
+RESPONSE_CREATED = "response.created"
 RESPONSE_DONE = "response.done"
 CONVERSATION_ITEM_DONE = "conversation.item.done"
 ERROR = "error"
