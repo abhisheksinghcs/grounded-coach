@@ -51,6 +51,20 @@ By default the coach is **silent** (text suggestions only) and **grounded**
 
 ---
 
+## Documentation
+
+In-depth docs live in [docs/](./docs):
+
+* [docs/architecture.md](./docs/architecture.md) — design considerations and the
+  reasoning/trade-offs behind each major decision.
+* [docs/code-walkthrough.md](./docs/code-walkthrough.md) — file-by-file tour
+  following one grounded coaching turn end to end.
+* [docs/grounding-and-safety.md](./docs/grounding-and-safety.md) — retrieval,
+  citations, empty-result handling, prompt-injection defense, and privacy.
+* [docs/testing.md](./docs/testing.md) — mocked-vs-live testing strategy.
+
+---
+
 ## Project layout
 
 ```
