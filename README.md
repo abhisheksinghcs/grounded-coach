@@ -55,6 +55,8 @@ By default the coach is **silent** (text suggestions only) and **grounded**
 
 In-depth docs live in [docs/](./docs):
 
+* [docs/usage.md](./docs/usage.md) — **how to run and use the app** (tester's
+  guide: install, configure, use, troubleshoot).
 * [docs/architecture.md](./docs/architecture.md) — design considerations and the
   reasoning/trade-offs behind each major decision.
 * [docs/code-walkthrough.md](./docs/code-walkthrough.md) — file-by-file tour
